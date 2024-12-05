@@ -9,12 +9,17 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@react-pdf-viewer/core": "^3.12.0",
+    "@react-pdf-viewer/default-layout": "^3.12.0",
     "commitizen": "^4.3.1",
     "git-cz": "^4.9.0",
     "next": "15.0.0",
+    "pdfjs": "^2.5.3",
+    "pdfjs-dist": "2.10.377",
     "react": "19.0.0-rc-65a56d0e-20241020",
     "react-dom": "19.0.0-rc-65a56d0e-20241020",
-    "react-loader-spinner": "^6.1.6"
+    "react-loader-spinner": "^6.1.6",
+    "react-pdf": "^9.1.1"
   },
   "devDependencies": {
     "postcss": "^8",

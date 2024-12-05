@@ -1,22 +1,56 @@
 "use client";
 import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { defaultLayoutPlugin } from "@react-pdf-viewer/default-layout";
+import * as pdfjsLib from "pdfjs-dist";
+import "@react-pdf-viewer/core/lib/styles/index.css";
+import "@react-pdf-viewer/default-layout/lib/styles/index.css";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.js`;
 
 export default function Navbar() {
   const router = useRouter();
+  const [fileUrl, setFileUrl] = useState(null);
+  const defaultLayoutPluginInstance = defaultLayoutPlugin();
 
-  const handleFileUpload = (event) => {
-    const selectedFile = event.target.files[0];
-    console.log(selectedFile);
-    if (selectedFile) {
-      // Check if the file is a PDF
-      if (selectedFile.type !== "application/pdf") {
-        alert("Please select a PDF file.");
-        return;
+  // Clean up the Object URL to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (fileUrl) {
+        URL.revokeObjectURL(fileUrl);
       }
+    };
+  }, [fileUrl]);
 
-      setFile(selectedFile); // Store the file in state
-      <Viewer fileUrl={selectedFile} plugins={[defaultLayoutPluginInstance]} />;
+  // const handleFileUpload = (event) => {
+  //   const selectedFile = event.target.files[0];
+  //   console.log(selectedFile);
+  //   if (selectedFile) {
+  //     // Check if the file is a PDF
+  //     if (selectedFile.type !== "application/pdf") {
+  //       alert("Please select a PDF file.");
+  //       return;
+  //     }
+  //     const url = URL.createObjectURL(selectedFile);
+  //     setFileUrl(url);
+  //     <Viewer fileUrl={fileUrl} plugins={[defaultLayoutPluginInstance]} />;
+  //   }
+  // };
+
+  const onFileChange = (event) => {
+    const selectedFile = event.target.files[0];
+    if (!selectedFile) {
+      alert("Please select a PDF file.");
+      return;
     }
+    const url = URL.createObjectURL(selectedFile);
+    setFileUrl(url);
+    // Navigate to the new route with the file URL as a query parameter
+    router.push(`/pdf-viewer?fileUrl=${encodeURIComponent(url)}`);
+  };
+
+  const onLoadSuccess = ({ numPages }) => {
+    setNumPages(numPages); // Set number of pages when the PDF is loaded
   };
 
   return (
@@ -41,7 +75,7 @@ export default function Navbar() {
                 id="upload-pdf"
                 type="file"
                 accept=".pdf"
-                onChange={handleFileUpload}
+                onChange={onFileChange}
                 className="hidden"
               />
               <button
