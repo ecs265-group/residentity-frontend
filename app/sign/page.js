@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Viewer } from "@react-pdf-viewer/core";
 import { defaultLayoutPlugin } from "@react-pdf-viewer/default-layout";
 import * as pdfjsLib from "pdfjs-dist";
@@ -16,6 +16,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 
 export default function PdfViewer() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
 
@@ -66,7 +67,9 @@ export default function PdfViewer() {
     // Generate public key from private key
     const genPublicKey = (privateKey) => {
       const decodedPrivateKey = base58.default.decode(privateKey);
-      const keyPair = nacl.sign.keyPair.fromSeed(decodedPrivateKey.slice(0, 32));
+      const keyPair = nacl.sign.keyPair.fromSeed(
+        decodedPrivateKey.slice(0, 32)
+      );
       return base58.default.encode(Buffer.from(keyPair.publicKey));
     };
 
@@ -105,15 +108,25 @@ export default function PdfViewer() {
     // Sign a transaction input with the private key for the public key
     const signatureFulfillment = (input, message, keyPairMap) => {
       const publicKey = input.owners_before[0];
-      const hashedMessage = crypto.createHash("sha3-256").update(message).digest();
+      const hashedMessage = crypto
+        .createHash("sha3-256")
+        .update(message)
+        .digest();
       const privateKey = base58.default.decode(keyPairMap[publicKey]);
 
       if (!privateKey) {
-        throw new Error(`Public key ${publicKey} is not a pair with your private key`);
+        throw new Error(
+          `Public key ${publicKey} is not a pair with your private key`
+        );
       }
 
-      const generatedKeyPair = nacl.sign.keyPair.fromSeed(privateKey.slice(0, 32));
-      const signature = nacl.sign.detached(hashedMessage, generatedKeyPair.secretKey);
+      const generatedKeyPair = nacl.sign.keyPair.fromSeed(
+        privateKey.slice(0, 32)
+      );
+      const signature = nacl.sign.detached(
+        hashedMessage,
+        generatedKeyPair.secretKey
+      );
 
       const asn1DictPayload = {
         publicKey: generatedKeyPair.publicKey,
@@ -132,7 +145,9 @@ export default function PdfViewer() {
     const keyPair = { [publicKey]: privateKey };
 
     // Remove fulfillment from transaction and prepare inputs
-    const txnWithoutFulfillmentStr = stringSerialize(removeFulfillment(preparedTokenTx));
+    const txnWithoutFulfillmentStr = stringSerialize(
+      removeFulfillment(preparedTokenTx)
+    );
     preparedTokenTx.inputs = preparedTokenTx.inputs.map((input) =>
       signatureFulfillment(input, txnWithoutFulfillmentStr, keyPair)
     );
@@ -153,6 +168,17 @@ export default function PdfViewer() {
       }
     };
   }, [fileUrl]);
+
+  useEffect(() => {
+    console.log("Debug - Current Pathname:", pathname);
+    console.log("Debug - Current SearchParams:", searchParams.toString());
+  }, [pathname, searchParams]);
+
+  useEffect(() => {
+    if (pathname === "/sign" && !searchParams.get("fileUrl")) {
+      setFileUrl(null);
+    }
+  }, [pathname, searchParams]);
 
   // setFileUrl on router ready. get fileUrl from search params
   useEffect(() => {
@@ -180,33 +206,35 @@ export default function PdfViewer() {
 
   if (!fileUrl) {
     return (
-      <div className='flex flex-col items-center justify-center h-screen'>
-        <h1 className='text-6xl text-white font-semibold p-4'>Upload a PDF to get started</h1>
+      <div className="flex flex-col items-center justify-center h-screen">
+        <h1 className="text-6xl text-white font-semibold p-4">
+          Upload a PDF to get started
+        </h1>
         <label
-          htmlFor='upload-pdf'
-          className='inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm text-white font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white border border-c2 bg-c0 shadow-sm hover:bg-white hover:text-c0 h-9 px-4 py-2 cursor-pointer'
+          htmlFor="upload-pdf"
+          className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm text-white font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white border border-c2 bg-c0 shadow-sm hover:bg-white hover:text-c0 h-9 px-4 py-2 cursor-pointer"
         >
           Upload PDF
         </label>
         <input
-          id='upload-pdf'
-          type='file'
-          accept='.pdf'
+          id="upload-pdf"
+          type="file"
+          accept=".pdf"
           onChange={onFileChange}
-          className='hidden'
+          className="hidden"
         />
       </div>
     );
   }
 
   return (
-    <div className='w-4/5 mx-auto'>
-      <div className='pdf-viewer border border-gray-300 rounded-md p-4 shadow-md max-h-[600px] overflow-auto'>
+    <div className="w-4/5 mx-auto">
+      <div className="pdf-viewer border border-gray-300 rounded-md p-4 shadow-md max-h-[600px] overflow-auto">
         <Viewer fileUrl={fileUrl} plugins={[defaultLayoutPluginInstance]} />
       </div>
       <button
         onClick={handleSubmit}
-        className='mt-4 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm text-white font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white border border-c2 bg-c0 shadow-sm hover:bg-white hover:text-c0 h-9 px-4 py-2'
+        className="mt-4 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm text-white font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white border border-c2 bg-c0 shadow-sm hover:bg-white hover:text-c0 h-9 px-4 py-2"
       >
         Submit
       </button>
