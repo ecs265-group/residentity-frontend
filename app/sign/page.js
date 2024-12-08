@@ -7,9 +7,10 @@ import { defaultLayoutPlugin } from "@react-pdf-viewer/default-layout";
 import * as pdfjsLib from "pdfjs-dist";
 import "@react-pdf-viewer/core/lib/styles/index.css";
 import "@react-pdf-viewer/default-layout/lib/styles/index.css";
-import crypto from "crypto";
 import base58 from "bs58";
 import nacl from "tweetnacl";
+import { getPrivateKey, getToken } from "@/utils/user";
+import { ThreeDots as Loader } from "@/components/loaders";
 
 nacl.sign.detached.verify = nacl.sign.detached.verify.bind(nacl.sign);
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.js`;
@@ -20,10 +21,16 @@ export default function PdfViewer() {
   const searchParams = useSearchParams();
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
 
+  const [pageLoading, setPageLoading] = useState(true);
+  const [file, setFile] = useState(null);
   const [fileUrl, setFileUrl] = useState(null);
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [buttonEnabled, setButtonEnabled] = useState(false);
 
-  const fulfillTxn = (preparedTokenTx, privateKey) => {
-    // Empty function for button click
+  const fulfillTxn = async (preparedTokenTx, privateKey) => {
     // Utility function to encode length in DER format
     const encodeLength = (length) => {
       if (length < 128) {
@@ -66,11 +73,9 @@ export default function PdfViewer() {
 
     // Generate public key from private key
     const genPublicKey = (privateKey) => {
-      const decodedPrivateKey = base58.default.decode(privateKey);
-      const keyPair = nacl.sign.keyPair.fromSeed(
-        decodedPrivateKey.slice(0, 32)
-      );
-      return base58.default.encode(Buffer.from(keyPair.publicKey));
+      const decodedPrivateKey = base58.decode(privateKey);
+      const keyPair = nacl.sign.keyPair.fromSeed(decodedPrivateKey.slice(0, 32));
+      return base58.encode(Buffer.from(keyPair.publicKey));
     };
 
     // Remove the fulfillment field from transaction inputs
@@ -105,28 +110,25 @@ export default function PdfViewer() {
       return JSON.stringify(sortObjectKeys(txn));
     };
 
+    const computeHash = async (message) => {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(message);
+      const hashBuffer = await window.crypto.subtle.digest("SHA-256", data);
+      return new Uint8Array(hashBuffer);
+    };
+
     // Sign a transaction input with the private key for the public key
-    const signatureFulfillment = (input, message, keyPairMap) => {
+    const signatureFulfillment = async (input, message, keyPairMap) => {
       const publicKey = input.owners_before[0];
-      const hashedMessage = crypto
-        .createHash("sha3-256")
-        .update(message)
-        .digest();
-      const privateKey = base58.default.decode(keyPairMap[publicKey]);
+      const hashedMessage = await computeHash(message);
+      const privateKey = base58.decode(keyPairMap[publicKey]);
 
       if (!privateKey) {
-        throw new Error(
-          `Public key ${publicKey} is not a pair with your private key`
-        );
+        throw new Error(`Public key ${publicKey} is not a pair with your private key`);
       }
 
-      const generatedKeyPair = nacl.sign.keyPair.fromSeed(
-        privateKey.slice(0, 32)
-      );
-      const signature = nacl.sign.detached(
-        hashedMessage,
-        generatedKeyPair.secretKey
-      );
+      const generatedKeyPair = nacl.sign.keyPair.fromSeed(privateKey.slice(0, 32));
+      const signature = nacl.sign.detached(hashedMessage, generatedKeyPair.secretKey);
 
       const asn1DictPayload = {
         publicKey: generatedKeyPair.publicKey,
@@ -145,20 +147,31 @@ export default function PdfViewer() {
     const keyPair = { [publicKey]: privateKey };
 
     // Remove fulfillment from transaction and prepare inputs
-    const txnWithoutFulfillmentStr = stringSerialize(
-      removeFulfillment(preparedTokenTx)
-    );
-    preparedTokenTx.inputs = preparedTokenTx.inputs.map((input) =>
+    const txnWithoutFulfillmentStr = stringSerialize(removeFulfillment(preparedTokenTx));
+    const inputsPromises = preparedTokenTx.inputs.map((input) =>
       signatureFulfillment(input, txnWithoutFulfillmentStr, keyPair)
     );
 
-    // Generate the transaction ID using SHA3-256 hash
-    // preparedTokenTx.id = crypto.createHash("sha3-256").update(stringSerialize(preparedTokenTx)).digest("hex");
-    // make the preparedTokenTx.id as the document digest
+    preparedTokenTx.inputs = await Promise.all(inputsPromises);
+
+    // Make the document digest as the transaction ID
     preparedTokenTx.id = preparedTokenTx.asset.data.document_digest;
 
     return preparedTokenTx;
   };
+
+  useEffect(() => {
+    if (!getToken()) {
+      router.push("/login?returnTo=/sign");
+      return;
+    }
+
+    const fileUrl = searchParams.get("fileUrl");
+    if (fileUrl) {
+      router.replace("/sign", undefined, { shallow: true });
+    }
+    setPageLoading(false);
+  }, []);
 
   // Clean up the Object URL to prevent memory leaks
   useEffect(() => {
@@ -170,23 +183,33 @@ export default function PdfViewer() {
   }, [fileUrl]);
 
   useEffect(() => {
-    console.log("Debug - Current Pathname:", pathname);
-    console.log("Debug - Current SearchParams:", searchParams.toString());
-  }, [pathname, searchParams]);
-
-  useEffect(() => {
     if (pathname === "/sign" && !searchParams.get("fileUrl")) {
       setFileUrl(null);
     }
   }, [pathname, searchParams]);
 
-  // setFileUrl on router ready. get fileUrl from search params
   useEffect(() => {
-    const fileUrl = searchParams.get("fileUrl");
-    if (fileUrl) {
-      setFileUrl(fileUrl);
+    const handleBeforeUnload = (event) => {
+      if (file) {
+        const message =
+          "You have unsaved changes. If you refresh the page, you will lose the file.";
+        event.returnValue = message; // Standard for most browsers
+        return message; // For some browsers (like Firefox)
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [file]);
+
+  useEffect(() => {
+    if (password && password.length >= 8) {
+      setButtonEnabled(true);
+    } else {
+      setButtonEnabled(false);
     }
-  }, []);
+  }, [password]);
 
   const onFileChange = (event) => {
     const selectedFile = event.target.files[0];
@@ -194,50 +217,160 @@ export default function PdfViewer() {
       alert("Please select a PDF file.");
       return;
     }
+    setFile(selectedFile);
     const url = URL.createObjectURL(selectedFile);
     setFileUrl(url);
-    // Navigate to the new route with the file URL as a query parameter
     router.push(`/sign?fileUrl=${encodeURIComponent(url)}`);
   };
 
-  const handleSubmit = () => {
-    // Empty function for button click
+  const initialSign = async () => {
+    const url = `${process.env.NEXT_PUBLIC_API_URL}/api/sign/initial`;
+    const payload = {
+      password,
+    };
+    try {
+      const res = await axios.post(url, payload, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        withCredentials: true,
+      });
+      return res.data.data;
+    } catch (error) {
+      throw new Error(
+        error.response?.data?.error?.message || "An error occurred. Please try again later."
+      );
+    }
   };
+
+  const prepareSign = async () => {
+    const url = `${process.env.NEXT_PUBLIC_API_URL}/api/sign/prepare`;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await axios.post(url, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+        withCredentials: true,
+      });
+      return res.data.data;
+    } catch (error) {
+      throw new Error(
+        error.response?.data?.error?.message || "An error occurred. Please try again later."
+      );
+    }
+  };
+
+  const commitSign = async (publicKey, preparedTokenTx) => {
+    const privateKey = await getPrivateKey(publicKey, password);
+    const url = `${process.env.NEXT_PUBLIC_API_URL}/api/sign/commit`;
+    const payload = await fulfillTxn(preparedTokenTx, privateKey);
+    try {
+      const res = await axios.post(url, payload, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        responseType: "blob",
+        withCredentials: true,
+      });
+      return res.data;
+    } catch (error) {
+      throw new Error(
+        error.response?.data?.error?.message || "An error occurred. Please try again later."
+      );
+    }
+  };
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    setError(null);
+    setStatus(null);
+
+    try {
+      setStatus("Initializing sign process...");
+      const { public_key: publicKey } = await initialSign();
+      setStatus("Signing in progress...");
+      const preparedTokenTx = await prepareSign();
+      setStatus("Committing sign...");
+      const documentBlob = await commitSign(publicKey, preparedTokenTx);
+      setStatus("Sign successful!");
+      setLoading(false);
+      const blobUrl = URL.createObjectURL(documentBlob);
+      window.open(blobUrl, "_blank");
+    } catch (error) {
+      setError(error.message);
+      setStatus(null);
+      setLoading(false);
+    }
+  };
+
+  if (pageLoading) {
+    return (
+      <div className='flex justify-center mt-2'>
+        <Loader />
+      </div>
+    );
+  }
 
   if (!fileUrl) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen">
-        <h1 className="text-6xl text-white font-semibold p-4">
-          Upload a PDF to get started
-        </h1>
-        <label
-          htmlFor="upload-pdf"
-          className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm text-white font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white border border-c2 bg-c0 shadow-sm hover:bg-white hover:text-c0 h-9 px-4 py-2 cursor-pointer"
-        >
-          Upload PDF
-        </label>
-        <input
-          id="upload-pdf"
-          type="file"
-          accept=".pdf"
-          onChange={onFileChange}
-          className="hidden"
-        />
+      <div className='flex items-center justify-center p-4 pt-20'>
+        <div className='flex flex-col items-center justify-center bg-c0 shadow-md rounded-lg max-w-xl w-full p-6'>
+          <h1 className='text-3xl font-bold text-white mb-4 text-center'>
+            Upload a PDF to get started
+          </h1>
+          <h2 className='text-lg text-c2 mb-4 text-center'>
+            Sign your document with a digital signature
+          </h2>
+          <label
+            htmlFor='upload-pdf'
+            className='inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm text-white font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white border border-c2 bg-c0 shadow-sm hover:bg-white hover:text-c0 h-9 px-4 py-2 cursor-pointer'
+          >
+            Upload PDF
+          </label>
+          <input
+            id='upload-pdf'
+            type='file'
+            accept='.pdf'
+            onChange={onFileChange}
+            className='hidden'
+          />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="w-4/5 mx-auto">
-      <div className="pdf-viewer border border-gray-300 rounded-md p-4 shadow-md max-h-[600px] overflow-auto">
+    <div className='w-4/5 mx-auto flex flex-row items-center justify-between gap-4 pt-20'>
+      <div className='mt-20 mx-auto w-2/6 flex flex-col items-center justify-center text-center border bg-c0 gap-4 rounded-lg border-white/15 p-12'>
+        <p className='text-white text-sm'>Enter your password to sign the document</p>
+        <input
+          type='password'
+          placeholder='Enter your password'
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className='mt-4 p-2 rounded-md text-white bg-c0 border border-white/15 placeholder-c2/50 text-sm focus:outline-none'
+        />
+        <button
+          disabled={!buttonEnabled}
+          onClick={handleSubmit}
+          className='inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm text-white font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white border border-c2 bg-c0 shadow-sm hover:bg-white hover:text-c0 h-9 px-4 py-2 cursor-pointer disabled:bg-c1 disabled:text-c2 disabled:cursor-not-allowed'
+        >
+          Sign
+        </button>
+        {loading ? (
+          <div className='flex justify-center mt-2'>
+            <Loader />
+          </div>
+        ) : null}
+        {error ? <div className='text-red-500/90 text-sm text-center'>{error}</div> : null}
+        {status ? <div className='text-green-500/90 text-sm text-center'>{status}</div> : null}
+      </div>
+      <div className='pdf-viewer w-2/3 border border-white/15 bg-c0 rounded-md p-4 shadow-md max-h-[600px] overflow-auto text-center'>
+        <h2 className='text-white text-2xl font-semibold mb-1'>Preview</h2>
         <Viewer fileUrl={fileUrl} plugins={[defaultLayoutPluginInstance]} />
       </div>
-      <button
-        onClick={handleSubmit}
-        className="mt-4 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm text-white font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white border border-c2 bg-c0 shadow-sm hover:bg-white hover:text-c0 h-9 px-4 py-2"
-      >
-        Submit
-      </button>
     </div>
   );
 }

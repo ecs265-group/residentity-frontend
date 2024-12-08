@@ -2,16 +2,28 @@
 
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ThreeDots as Loader } from "@/components/loaders";
+import axios from "axios";
+import { getToken } from "@/utils/user";
 
 export default function Login() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [pageLoading, setPageLoading] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [buttonEnabled, setButtonEnabled] = useState(false);
+
+  useEffect(() => {
+    if (getToken()) {
+      router.push("/");
+    } else {
+      setPageLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (email === "" || password === "" || !validateEmail(email)) {
@@ -31,27 +43,41 @@ export default function Login() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const res = await axios.post(
+        process.env.NEXT_PUBLIC_API_URL + "/api/login",
+        {
+          email,
+          password,
         },
-        body: JSON.stringify({ email, password }),
-      });
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+          withCredentials: true,
+        }
+      );
       if (res.status === 200) {
-        setTimeout(() => {
-          router.push("/dashboard");
-        }, 2000);
+        const returnTo = searchParams.get("returnTo") || "/";
+        window.location.href = returnTo;
       } else {
-        const data = await res.json();
-        setError(data.message);
+        setError(res.data.data.message);
       }
     } catch (error) {
-      setError("An error occurred. Please try again later.");
+      setError(
+        error.response?.data?.error?.message || "An error occurred. Please try again later."
+      );
     } finally {
       setLoading(false);
     }
   };
+
+  if (pageLoading) {
+    return (
+      <div className='flex justify-center mt-2'>
+        <Loader />
+      </div>
+    );
+  }
 
   return (
     <div className='mt-20 mx-auto w-1/3 flex flex-col items-center justify-center text-center border bg-c0 gap-4 rounded-lg border-white/15 p-6'>

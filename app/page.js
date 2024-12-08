@@ -7,7 +7,7 @@ export default function Home() {
       <div>
         <h1 className='text-6xl text-white font-semibold p-4'>ResIdentity</h1>
         <h2 className='text-xl text-c2 font-medium p-4'>
-          Decentralized Document e-Signing <br /> and Authenticity Verification
+          A Decentralized Document <br /> e-Signer and Verifier
         </h2>
       </div>
       <div>
