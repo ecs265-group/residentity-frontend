@@ -61,8 +61,10 @@ export default function Verify() {
   return (
     <div className='flex items-center justify-center p-4 pt-20'>
       <div className='max-w-xl w-full bg-c0 shadow-md rounded-lg p-6'>
-        <h1 className='text-3xl font-bold text-white mb-4 text-center'>Verify Document</h1>
-        <h2 className='text-lg text-c2 mb-4 text-center'>Check the public ledger to verify the ownership of a document.</h2>
+        <h1 className='text-3xl font-bold text-white mb-4 text-center'>Verify A Signed Document</h1>
+        <h2 className='text-lg text-c2 mb-4 text-center'>
+          Check the authenticity of a signed PDF.
+        </h2>
 
         {/* Upload Button */}
         <div className='flex justify-center'>
