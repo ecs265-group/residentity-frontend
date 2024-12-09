@@ -29,6 +29,39 @@ export default function PdfViewer() {
   const [error, setError] = useState(null);
   const [status, setStatus] = useState(null);
   const [buttonEnabled, setButtonEnabled] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedRegion, setSelectedRegion] = useState(null);
+  const [startPoint, setStartPoint] = useState(null);
+
+  const handleMouseDown = (e) => {
+    if (!selectionMode) return;
+    const rect = e.target.getBoundingClientRect();
+    setStartPoint({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+  };
+
+  const handleMouseMove = (e) => {
+    if (!selectionMode || !startPoint) return;
+    const rect = e.target.getBoundingClientRect();
+    const currentPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    setSelectedRegion({
+      x: Math.min(startPoint.x, currentPoint.x),
+      y: Math.min(startPoint.y, currentPoint.y),
+      width: Math.abs(currentPoint.x - startPoint.x),
+      height: Math.abs(currentPoint.y - startPoint.y),
+    });
+  };
+
+  const handleMouseUp = () => {
+    if (!selectionMode) return;
+    setStartPoint(null); // Stop tracking drag
+  };
+
+  useEffect(() => {
+    if (!selectionMode) {
+      setStartPoint(null);
+      // setSelectedRegion(null);
+    }
+  }, [selectionMode]);
 
   const fulfillTxn = async (preparedTokenTx, privateKey) => {
     // Utility function to encode length in DER format
@@ -317,12 +350,8 @@ export default function PdfViewer() {
     return (
       <div className='flex items-center justify-center p-4 pt-20'>
         <div className='flex flex-col items-center justify-center bg-c0 shadow-md rounded-lg max-w-xl w-full p-6'>
-          <h1 className='text-3xl font-bold text-white mb-4 text-center'>
-            Upload a PDF to get started
-          </h1>
-          <h2 className='text-lg text-c2 mb-4 text-center'>
-            Sign your document with a digital signature
-          </h2>
+          <h1 className='text-3xl font-bold text-white mb-4 text-center'>E-sign Your Document</h1>
+          <h2 className='text-lg text-c2 mb-4 text-center'>Upload a PDF document for signing</h2>
           <label
             htmlFor='upload-pdf'
             className='inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm text-white font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white border border-c2 bg-c0 shadow-sm hover:bg-white hover:text-c0 h-9 px-4 py-2 cursor-pointer'
@@ -368,8 +397,58 @@ export default function PdfViewer() {
         {status ? <div className='text-green-500/90 text-sm text-center'>{status}</div> : null}
       </div>
       <div className='pdf-viewer w-2/3 border border-white/15 bg-c0 rounded-md p-4 shadow-md max-h-[600px] overflow-auto text-center'>
-        <h2 className='text-white text-2xl font-semibold mb-1'>Preview</h2>
-        <Viewer fileUrl={fileUrl} plugins={[defaultLayoutPluginInstance]} />
+        <h2 className='text-white text-2xl font-semibold mb-1 flex items-center justify-between'>
+          Preview
+          <button
+            onClick={() => {
+              setSelectionMode(!selectionMode);
+              // if (!selectionMode) setSelectedRegion(null); // Reset selection on reactivation
+            }}
+            className={`inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 ${
+              selectionMode
+                ? "bg-red-600 text-white border border-white"
+                : "bg-white text-c0 border border-c2 hover:bg-c0 hover:text-white"
+            } h-9 px-4 py-2`}
+          >
+            {selectionMode ? "Stop Selection" : "Select Area"}
+          </button>
+        </h2>
+        <div className='relative pdf-viewer w-full border border-white/15 bg-c0 rounded-md p-4 shadow-md overflow-auto text-center'>
+          {selectionMode && (
+            <div
+              className='absolute top-0 left-0 w-full h-full z-10 cursor-crosshair'
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+            >
+              {selectedRegion && (
+                <div
+                  className='absolute bg-red-500/50 border border-red-600'
+                  style={{
+                    top: selectedRegion.y,
+                    left: selectedRegion.x,
+                    width: selectedRegion.width,
+                    height: selectedRegion.height,
+                  }}
+                ></div>
+              )}
+            </div>
+          )}
+          {!selectionMode && selectedRegion && (
+            <div className='absolute top-0 left-0 w-full h-full z-10'>
+              <div
+                className='absolute bg-red-500/50 border border-red-600'
+                style={{
+                  top: selectedRegion.y,
+                  left: selectedRegion.x,
+                  width: selectedRegion.width,
+                  height: selectedRegion.height,
+                }}
+              ></div>
+            </div>
+          )}
+          <Viewer fileUrl={fileUrl} plugins={[defaultLayoutPluginInstance]} />
+        </div>
       </div>
     </div>
   );
